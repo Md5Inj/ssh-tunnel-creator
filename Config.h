@@ -97,6 +97,10 @@ public:
         this->readConfigFile();
     }
 
+    map<string, map<string, map<string, string>>> getConfig() {
+        return this->config;
+    }
+
     void writeConfig(map<string, string> portConfig, string boxName, int provisionedPort) {
         if (this->config[boxName].empty()) {
             map<string, map<string, string>> portsConfig;

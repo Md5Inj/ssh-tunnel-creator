@@ -14,6 +14,7 @@
 #include <sys/wait.h>
 #include <cstdlib>
 #include "Config.h"
+#include "bprinter/table_printer.h"
 
 const int MYSQL_TUNNEL_TYPE = 0;
 const int ELASTICSEARCH_TUNNEL_TYPE = 1;
@@ -21,59 +22,22 @@ const int CUSTOM_TUNNEL_TYPE = 2;
 
 class TunnelManager {
 private:
+Config config;
 
-#define READ   0
-#define WRITE  1
-    FILE * popen2(string command, string type, int & pid)
-    {
-        pid_t child_pid;
-        int fd[2];
-        pipe(fd);
+    /**
+     * Runs ssh tunnel process and returns its pid
+     *
+     * @param portToProvision
+     * @param localPort
+     * @param machineIp
+     * @return
+     */
+    int runSSH(int portToProvision, int localPort, string machineIp) {
+        string tunnelCommand = "ssh -L " + to_string(portToProvision) + ":127.0.0.1:" + to_string(localPort) + " www-data@" + machineIp + " -N -f";
+        exec(tunnelCommand.c_str());
+        string pid = exec(("ps aux | grep '[s]sh.*" + to_string(portToProvision) + ".*-f' | tr -s ' ' | cut -d ' ' -f 2 | sort").c_str());
 
-        if((child_pid = fork()) == -1)
-        {
-            perror("fork");
-            exit(1);
-        }
-
-        /* child process */
-        if (child_pid == 0)
-        {
-            if (type == "r")
-            {
-                close(fd[READ]);    //Close the READ end of the pipe since the child's fd is write-only
-                dup2(fd[WRITE], 1); //Redirect stdout to pipe
-            }
-            else
-            {
-                close(fd[WRITE]);    //Close the WRITE end of the pipe since the child's fd is read-only
-                dup2(fd[READ], 0);   //Redirect stdin to pipe
-            }
-
-            setpgid(child_pid, child_pid); //Needed so negative PIDs can kill children of /bin/sh
-            execl("/bin/sh", "/bin/sh", "-c", command.c_str(), NULL);
-            exit(0);
-        }
-        else
-        {
-            if (type == "r")
-            {
-                close(fd[WRITE]); //Close the WRITE end of the pipe since parent's fd is read-only
-            }
-            else
-            {
-                close(fd[READ]); //Close the READ end of the pipe since parent's fd is write-only
-            }
-        }
-
-        pid = child_pid;
-
-        if (type == "r")
-        {
-            return fdopen(fd[READ], "r");
-        }
-
-        return fdopen(fd[WRITE], "w");
+        return stoi(pid.c_str());
     }
 
     string exec(const char* cmd) {
@@ -118,9 +82,45 @@ private:
         return port;
     }
 public:
-    void openPort() {
-        Config config;
+    TunnelManager() {
+    }
 
+    void printTunnelsList() {
+        bprinter::TablePrinter tp(&std::cout);
+        tp.AddColumn("Box name", 50);
+        tp.AddColumn("Provisioned port", 16);
+        tp.AddColumn("Tunnel is running", 17);
+        tp.AddColumn("PID", 15);
+        tp.AddColumn("Local port", 15);
+
+        tp.PrintHeader();
+
+        auto configArray = config.getConfig();
+
+        for (auto & boxConfig: configArray) {
+            for (auto & portsConfig: boxConfig.second) {
+                tp << boxConfig.first;
+                tp << portsConfig.first;
+                for (auto & portConfig: portsConfig.second) {
+                    if (portConfig.first == "pid") {
+                        string processExists = exec(("ps -p " + portConfig.second + " | sed -n '2 p'").c_str());
+                        if (!processExists.empty()) {
+                            tp << "Yes";
+                        } else {
+                            tp << "No";
+                        }
+                        tp << portConfig.second;
+                    } else {
+                        tp << portConfig.second;
+                    }
+                }
+            }
+        }
+
+        tp.PrintFooter();
+    }
+
+    void openPort() {
         string output = exec("lxc list -f json");
 
         Json::Reader reader;
@@ -189,10 +189,8 @@ public:
         int portToOpen = getFreePort();
         string boxIp = runningBoxes[boxIndex].find("address")->second;
         string tunnelCommand = "ssh -L " + to_string(portToOpen) + ":127.0.0.1:" + to_string(boxPort) + " www-data@" + boxIp + " -N -f";
-        int tunnelPid;
+        int tunnelPid = runSSH(portToOpen, boxPort, boxIp);
         cout << tunnelCommand;
-        popen2(tunnelCommand, "r", tunnelPid);
-
 
         string boxName = runningBoxes[boxIndex].find("name")->second;
 
@@ -200,6 +198,17 @@ public:
                                               {string("pid"), to_string(tunnelPid)}};
 
         config.writeConfig(boxConfigItems, boxName, boxPort);
+    }
+
+    void reOpenPorts(string boxName) {
+        auto boxesConfig = this->config.getConfig();
+        for (auto box: boxesConfig) {
+            if (box.first == boxName) {
+               for (auto port: box.second) {
+                   cout << port.first;
+               }
+            }
+        }
     }
 };
 
