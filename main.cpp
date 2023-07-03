@@ -105,7 +105,7 @@ int main(int argc, char * argv[]) {
         cin >> boxIndex;
         cout << endl;
 
-        tunnelManager.reOpenPorts(runningBoxes[boxIndex].find("name")->second);
+        tunnelManager.reOpenPorts(runningBoxes[boxIndex]);
 
         return 0;
     }

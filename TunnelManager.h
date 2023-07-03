@@ -200,11 +200,11 @@ public:
         config.writeConfig(boxConfigItems, boxName, boxPort);
     }
 
-    void reOpenPorts(string boxName) {
+    void reOpenPorts(map<string, string> box) {
         auto boxesConfig = this->config.getConfig();
-        for (auto box: boxesConfig) {
-            if (box.first == boxName) {
-               for (auto port: box.second) {
+        for (auto boxConfig: boxesConfig) {
+            if (boxConfig.first == box.find("name")->second) {
+               for (auto port: boxConfig.second) {
                    cout << port.first;
                }
             }
